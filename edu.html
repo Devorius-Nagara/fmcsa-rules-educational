@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Навчальний Графік HOS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+
+        /* Графік */
+        .graph-container {
+            position: relative;
+            width: 100%;
+            height: 240px; /* 4 рядки по 60px */
+            background-color: #fff;
+            user-select: none;
+            clip-path: inset(-150px 0px -150px 0px);
+        }
+
+        /* Інтерактивні блоки горизонтальних подій */
+        .event-block {
+            position: absolute;
+            height: 40px;
+            margin-top: 10px; /* Центрування в 60px рядку */
+            background-color: transparent;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 20;
+        }
+        .event-block:active { cursor: grabbing; }
+        .event-block:hover .event-controls { display: flex; }
+        .event-block:hover { background-color: rgba(148, 163, 184, 0.15); border-radius: 4px; }
+
+        /* Маркери зміни розміру */
+        .resize-handle {
+            width: 10px;
+            height: 100%;
+            cursor: ew-resize;
+            background-color: transparent;
+            z-index: 25;
+        }
+        .resize-handle:hover { background-color: rgba(148, 163, 184, 0.3); }
+
+        /* Кнопки керування всередині події */
+        .event-controls {
+            display: none;
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            padding: 2px 4px;
+            border-radius: 4px;
+            gap: 4px;
+            z-index: 35;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .event-controls::after {
+            content: '';
+            position: absolute;
+            bottom: -15px;
+            left: 0;
+            width: 100%;
+            height: 15px;
+            background: transparent;
+        }
+
+        .control-btn {
+            color: white;
+            font-size: 11px;
+            padding: 2px 6px;
+            cursor: pointer;
+            border-radius: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .control-btn:hover { background: #475569; }
+        .control-btn.danger:hover { background: #ef4444; }
+
+        /* Текстовий підпис над подією */
+        .event-label {
+            position: absolute;
+            bottom: 50%;
+            margin-bottom: 6px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 11px;
+            font-weight: bold;
+            color: #334155;
+            white-space: nowrap;
+            pointer-events: none;
+
+            background-color: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(2px);
+            padding: 1px 6px;
+            border-radius: 4px;
+            border: 1px solid rgba(226, 232, 240, 0.5);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            z-index: 50;
+        }
+
+        .event-label.label-below {
+            bottom: auto;
+            top: 50%;
+            margin-bottom: 0;
+            margin-top: 6px;
+        }
+
+        /* --- ВЕРТИКАЛЬНІ ПОДІЇ --- */
+        .v-event-block {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            width: 16px;
+            transform: translateX(-50%);
+            cursor: ew-resize;
+            z-index: 22;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .v-event-block:hover { background-color: rgba(0, 0, 0, 0.05); }
+        .v-event-block:hover .v-event-controls { display: flex; }
+
+        .v-event-label {
+            position: absolute;
+            top: -26px;
+            font-size: 10px;
+            font-weight: bold;
+            color: #475569;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 2px 5px;
+            border-radius: 4px;
+            border: 1px solid #cbd5e1;
+            white-space: nowrap;
+            pointer-events: none;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            z-index: 50;
+        }
+
+        .v-event-controls {
+            display: none;
+            position: absolute;
+            top: 10px; /* Трохи нижче верху графіка */
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            padding: 2px 4px;
+            border-radius: 4px;
+            gap: 4px;
+            z-index: 40;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+        }
+        .v-event-controls::after {
+            content: '';
+            position: absolute;
+            top: -15px;
+            left: 0;
+            width: 100%;
+            height: 15px;
+            background: transparent;
+        }
+
+        /* Кнопки валідації */
+        .indicator-btn {
+            background: transparent;
+            border: none;
+            color: #cbd5e1;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            padding: 8px;
+        }
+        .indicator-btn:hover {
+            transform: scale(1.15);
+            color: #94a3b8;
+        }
+        .indicator-btn.active-red {
+            color: #ef4444;
+            transform: scale(1.3);
+            filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.6));
+        }
+        .indicator-btn.active-green {
+            color: #22c55e;
+            transform: scale(1.3);
+            filter: drop-shadow(0 0 12px rgba(34, 197, 94, 0.6));
+        }
+
+        /* SVG Шари */
+        #svg-layer { pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+        #svg-vertical-layer { pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 8; }
+        #svg-ghost-layer { pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }
+        #svg-arrows-layer { pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 15; }
+        #svg-grid { pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen p-4 md:p-8">
+
+<div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Верхня панель -->
+    <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-200 flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-100 p-2 rounded-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-slate-800">Навчальний Графік HOS</h1>
+                <p class="text-xs text-slate-500">Симулятор для демонстрації порушень та правил</p>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+            <button id="btnAddEvent" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded shadow-sm flex items-center gap-1 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                Подія
+            </button>
+
+            <!-- Вертикальні маркери -->
+            <div class="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded p-1 shadow-sm">
+                <select id="vEventType" class="text-sm bg-white border border-slate-300 rounded px-2 py-1.5 outline-none text-slate-700 font-medium">
+                    <option value="POWER_UP">Power up</option>
+                    <option value="POWER_DOWN">Power Down</option>
+                    <option value="CONNECT">Connect</option>
+                    <option value="DISCONNECT">Disconnect</option>
+                    <option value="BDX">BDX</option>
+                    <option value="CERT">Cert</option>
+                    <option value="IR">IR</option>
+                </select>
+                <button id="btnAddVEvent" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-1.5 px-3 rounded transition-colors" title="Додати вертикальну подію">
+                    + Маркер
+                </button>
+            </div>
+
+            <div class="h-8 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+
+            <button id="btnSave" class="bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium py-2 px-4 rounded shadow-sm transition-colors">
+                💾 Save
+            </button>
+            <button id="btnReset" class="bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-sm font-medium py-2 px-4 rounded shadow-sm transition-colors">
+                ↩️ Reset
+            </button>
+            <button id="btnClearAll" class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2 px-4 rounded shadow-sm transition-colors" title="Очистити все">
+                🗑️ Clear All
+            </button>
+        </div>
+    </div>
+
+    <!-- Чиста зона графіку (Ідеальна для скріншотів) -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 overflow-hidden">
+
+        <!-- Індикатори оцінки -->
+        <div class="flex justify-center mb-2 gap-4">
+            <button id="btnInvalid" class="indicator-btn" title="Помилка">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <button id="btnValid" class="indicator-btn" title="Правильно">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
+            </button>
+        </div>
+
+        <!-- Graph Area -->
+        <div class="flex mt-4">
+            <!-- Y-Axis Labels -->
+            <div class="w-16 shrink-0 bg-white border-r border-slate-200 flex flex-col justify-around text-xs font-bold text-slate-500 py-[10px]">
+                <div class="h-[60px] flex items-center pl-2 relative">
+                    <span class="w-2 h-2 rounded-full bg-red-500 mr-1.5"></span>OFF<span class="absolute right-1 text-[10px] text-slate-300">1</span>
+                </div>
+                <div class="h-[60px] flex items-center pl-2 relative bg-slate-50">
+                    <span class="w-2 h-2 rounded-full bg-gray-500 mr-1.5"></span>SB<span class="absolute right-1 text-[10px] text-slate-300">2</span>
+                </div>
+                <div class="h-[60px] flex items-center pl-2 relative">
+                    <span class="w-2 h-2 rounded-full bg-green-500 mr-1.5"></span>D<span class="absolute right-1 text-[10px] text-slate-300">3</span>
+                </div>
+                <div class="h-[60px] flex items-center pl-2 relative bg-slate-50">
+                    <span class="w-2 h-2 rounded-full bg-amber-500 mr-1.5"></span>ON<span class="absolute right-1 text-[10px] text-slate-300">4</span>
+                </div>
+            </div>
+
+            <!-- X-Axis & Graph Container -->
+            <div class="flex-1 flex flex-col min-w-[800px] overflow-x-auto relative pl-2 pr-4">
+
+                <!-- Time header -->
+                <div class="h-8 flex text-[10px] font-medium text-slate-400 relative" id="timeHeader">
+                    <!-- Заповнюється JS -->
+                </div>
+
+                <!-- Interactive Graph Container -->
+                <div class="graph-container" id="graphContainer">
+                    <!-- SVG Grid Background -->
+                    <svg id="svg-grid"></svg>
+                    <!-- SVG Ghost Layer (Saved State) -->
+                    <svg id="svg-ghost-layer"></svg>
+                    <!-- SVG Vertical Lines -->
+                    <svg id="svg-vertical-layer"></svg>
+                    <!-- SVG Active Lines Layer -->
+                    <svg id="svg-layer"></svg>
+                    <!-- SVG Arrows Layer (Вектори змін) -->
+                    <svg id="svg-arrows-layer"></svg>
+                    <!-- HTML Interactive Blocks -->
+                    <div id="interactive-layer" class="absolute top-0 left-0 w-full h-full"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Легенда кольорів -->
+        <div class="flex flex-col gap-3 justify-center pt-8">
+            <div class="flex flex-wrap gap-4 text-xs text-gray-600 justify-center">
+                <div class="flex items-center gap-1"><span class="w-3 h-0.5 bg-red-500 inline-block rounded"></span> OFF Duty</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-0.5 bg-gray-500 inline-block rounded"></span> Sleeper Berth</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-0.5 bg-green-500 inline-block rounded"></span> Driving</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-0.5 bg-amber-500 inline-block rounded"></span> On Duty</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-0.5 border-t-2 border-dashed border-red-500 inline-block" style="width:12px"></span> PC</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-0.5 border-t-2 border-dashed border-amber-500 inline-block" style="width:12px"></span> YM</div>
+            </div>
+            <!-- Легенда вертикальних подій -->
+            <div class="flex flex-wrap gap-4 text-[11px] text-gray-500 justify-center border-t border-slate-100 pt-3">
+                <div class="font-bold text-slate-400 mr-1 uppercase">Вертикальні події:</div>
+                <div class="flex items-center gap-1.5"><span class="w-0.5 h-3 bg-green-500 inline-block"></span> Power up</div>
+                <div class="flex items-center gap-1.5"><span class="w-0.5 h-3 bg-red-500 inline-block"></span> Power Down</div>
+                <div class="flex items-center gap-1.5"><span class="w-0.5 h-3 bg-blue-500 inline-block"></span> Connect</div>
+                <div class="flex items-center gap-1.5"><span class="w-0.5 h-3 bg-orange-500 inline-block"></span> Disconnect</div>
+                <div class="flex items-center gap-1.5"><span class="w-0.5 h-3 border-l-2 border-dashed border-purple-500 inline-block"></span> BDX</div>
+                <div class="flex items-center gap-1.5"><span class="w-0.5 h-3 border-l-2 border-dashed border-blue-500 inline-block"></span> Cert</div>
+                <div class="flex items-center gap-1.5"><span class="w-1 h-3 bg-orange-500 inline-block"></span> IR</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Нижня панель -->
+    <div class="bg-white rounded-xl shadow-sm p-4 border border-slate-200">
+        <div class="text-xs text-slate-500 space-y-1.5 bg-slate-50 p-3 rounded-lg border border-slate-100">
+            <div><strong class="text-slate-700">Перетягування:</strong> Затисніть центр блоку або вертикальний маркер, щоб перемістити їх у часі.</div>
+            <div><strong class="text-slate-700">Розмір подій:</strong> Тягніть за лівий/правий край горизонтального блоку. Зміни супроводжуються сірими стрілочками.</div>
+            <div><strong class="text-slate-700">Меню:</strong> Наведіть на подію (Перенесення ⇦ ⇨, Підпис, Видалення ❌).</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * НАЛАШТУВАННЯ ТА СТАН
+     */
+    const TOTAL_MINUTES = 1440; // 24 години
+    const SNAP_MINUTES = 15; // Прилипання до 15 хвилин
+    const ROW_HEIGHT = 60; // Висота одного рядка статусу
+    const Y_OFFSETS = { 'OFF': 30, 'SB': 90, 'D': 150, 'ON': 210 };
+
+    const STATUS_COLORS = {
+        'OFF': '#ef4444',
+        'SB': '#6b7280',
+        'D': '#22c55e',
+        'ON': '#f59e0b'
+    };
+
+    // Конфігурація вертикальних подій
+    const VERTICAL_TYPES = {
+        'POWER_UP':   { label: 'Power up',   color: '#22c55e', dash: '', width: 2 },
+        'POWER_DOWN': { label: 'Power Down', color: '#ef4444', dash: '', width: 2 },
+        'CONNECT':    { label: 'Connect',    color: '#3b82f6', dash: '', width: 2 },
+        'DISCONNECT': { label: 'Disconnect', color: '#f97316', dash: '', width: 2 },
+        'BDX':        { label: 'BDX',        color: '#a855f7', dash: '4 4', width: 2 },
+        'CERT':       { label: 'Cert',       color: '#3b82f6', dash: '4 4', width: 2 },
+        'IR':         { label: 'IR',         color: '#f97316', dash: '', width: 4 }
+    };
+    const VERTICAL_KEYS = Object.keys(VERTICAL_TYPES);
+
+    // Змінні для швидкості доступу до поточного стану
+    let events = [];
+    let savedEvents = [];
+    let verticalEvents = [];
+    let savedVerticalEvents = [];
+    let outOfBoundsEvents = {};
+
+    // Змінні для Drag & Drop
+    let initialEventsSnapshot = [];
+    let initialOutOfBoundsSnapshot = {};
+    let draggedEventId = null;
+    let draggedVEventId = null;
+    let dragType = null;
+    let startDragX = 0;
+    let initialStartMin = 0;
+    let initialEndMin = 0;
+    let initialVTimeMin = 0;
+
+    // Отримання елементів
+    const graphContainer = document.getElementById('graphContainer');
+    const interactiveLayer = document.getElementById('interactive-layer');
+    const svgGrid = document.getElementById('svg-grid');
+    const svgLayer = document.getElementById('svg-layer');
+    const svgGhostLayer = document.getElementById('svg-ghost-layer');
+    const svgVerticalLayer = document.getElementById('svg-vertical-layer');
+    const svgArrowsLayer = document.getElementById('svg-arrows-layer');
+    const timeHeader = document.getElementById('timeHeader');
+
+    /**
+     * ІНІЦІАЛІЗАЦІЯ СІТКИ
+     */
+    function initGrid() {
+        let gridHTML = '';
+        let headerHTML = '';
+
+        for(let i=1; i<4; i++) {
+            gridHTML += `<line x1="0" y1="${i*ROW_HEIGHT}" x2="100%" y2="${i*ROW_HEIGHT}" stroke="#e2e8f0" stroke-width="1" />`;
+        }
+
+        for(let i=0; i<=24; i++) {
+            let xPercent = (i * 60 / TOTAL_MINUTES) * 100;
+            let strokeColor = (i === 0 || i === 12 || i === 24) ? '#cbd5e1' : '#f1f5f9';
+            let strokeWidth = (i === 0 || i === 12 || i === 24) ? 2 : 1;
+
+            gridHTML += `<line x1="${xPercent}%" y1="0" x2="${xPercent}%" y2="100%" stroke="${strokeColor}" stroke-width="${strokeWidth}" />`;
+
+            if (i < 24) {
+                let hourStr = i === 0 ? 'M' : (i === 12 ? 'N' : (i > 12 ? i - 12 : i));
+                headerHTML += `<div style="position:absolute; left:${xPercent}%; transform:translateX(-50%); bottom:4px;">${hourStr}</div>`;
+            } else {
+                headerHTML += `<div style="position:absolute; left:100%; transform:translateX(-100%); bottom:4px;">M</div>`;
+            }
+        }
+
+        svgGrid.innerHTML = gridHTML;
+        timeHeader.innerHTML = headerHTML;
+    }
+
+    function generateId() {
+        return Math.random().toString(36).substr(2, 9);
+    }
+
+    /**
+     * ЛОГІКА ЗБЕРЕЖЕННЯ У LOCALSTORAGE
+     */
+    function saveToStorage() {
+        const data = {
+            events: events,
+            savedEvents: savedEvents,
+            verticalEvents: verticalEvents,
+            savedVerticalEvents: savedVerticalEvents,
+            outOfBoundsEvents: outOfBoundsEvents
+        };
+        try {
+            localStorage.setItem('eld_edu_graph_data_v3', JSON.stringify(data));
+        } catch(e) {
+            console.error("Помилка збереження", e);
+        }
+    }
+
+    function loadFromStorage() {
+        try {
+            const dataV3 = localStorage.getItem('eld_edu_graph_data_v3');
+            const dataV2 = localStorage.getItem('eld_edu_graph_data_v2'); // Зворотна сумісність
+
+            if (dataV3) {
+                const parsed = JSON.parse(dataV3);
+                events = parsed.events || [];
+                savedEvents = parsed.savedEvents || [];
+                verticalEvents = parsed.verticalEvents || [];
+                savedVerticalEvents = parsed.savedVerticalEvents || [];
+                outOfBoundsEvents = parsed.outOfBoundsEvents || {};
+            } else if (dataV2) {
+                const parsed = JSON.parse(dataV2);
+                if (parsed.db && parsed.db[1]) {
+                    events = parsed.db[1].events || [];
+                    savedEvents = parsed.db[1].savedEvents || [];
+                    verticalEvents = parsed.db[1].verticalEvents || [];
+                    savedVerticalEvents = parsed.db[1].savedVerticalEvents || [];
+                    outOfBoundsEvents = parsed.db[1].outOfBoundsEvents || {};
+                }
+            }
+        } catch (e) {}
+        render();
+    }
+
+    /**
+     * ДОДАВАННЯ ПОДІЙ
+     */
+    function addEvent() {
+        let startMin = 0;
+        let endMin = 60;
+        let status = 'OFF';
+
+        events.sort((a,b) => a.startMin - b.startMin);
+        for(let ev of events) {
+            if(startMin + 60 <= ev.startMin) break;
+            startMin = ev.endMin;
+            endMin = startMin + 60;
+        }
+
+        if (startMin >= TOTAL_MINUTES) {
+            alert("Немає вільного місця на графіку!");
+            return;
+        }
+        if (endMin > TOTAL_MINUTES) endMin = TOTAL_MINUTES;
+
+        events.push({ id: generateId(), status: status, startMin: startMin, endMin: endMin, label: '', special: 'NONE' });
+        render();
+    }
+
+    function addVerticalEvent() {
+        let type = document.getElementById('vEventType').value;
+        verticalEvents.push({ id: generateId(), timeMin: 720, type: type }); // За замовчуванням на 12:00
+        render();
+    }
+
+    /**
+     * ОСНОВНА ФУНКЦІЯ РЕНДЕРУ
+     */
+    function render() {
+        events.sort((a, b) => a.startMin - b.startMin);
+        savedEvents.sort((a, b) => a.startMin - b.startMin);
+
+        // Малюємо горизонтальні лінії
+        drawSVGLines(savedEvents, svgGhostLayer, true, events);
+        drawSVGLines(events, svgLayer, false);
+        drawArrows(savedEvents, events);
+
+        // Малюємо вертикальні лінії в SVG
+        let vSvgHtml = '';
+        verticalEvents.forEach(vEv => {
+            let conf = VERTICAL_TYPES[vEv.type];
+            let x = (vEv.timeMin / TOTAL_MINUTES) * 100;
+            let strokeDash = conf.dash ? `stroke-dasharray="${conf.dash}"` : '';
+            vSvgHtml += `<line x1="${x}%" y1="0" x2="${x}%" y2="100%" stroke="${conf.color}" stroke-width="${conf.width}" ${strokeDash} opacity="0.9" />`;
+        });
+        svgVerticalLayer.innerHTML = vSvgHtml;
+
+        interactiveLayer.innerHTML = '';
+
+        // Інтерактивні блоки горизонтальних подій
+        events.forEach(ev => {
+            let leftPercent = (ev.startMin / TOTAL_MINUTES) * 100;
+            let widthPercent = ((ev.endMin - ev.startMin) / TOTAL_MINUTES) * 100;
+            let rowIdx = ['OFF', 'SB', 'D', 'ON'].indexOf(ev.status);
+            let topPx = rowIdx * ROW_HEIGHT;
+
+            let div = document.createElement('div');
+            div.className = 'event-block';
+            div.style.left = `${leftPercent}%`;
+            div.style.width = `${widthPercent}%`;
+            div.style.top = `${topPx}px`;
+            div.dataset.id = ev.id;
+
+            let labelClass = ev.status === 'ON' ? 'event-label label-below' : 'event-label';
+            let labelHtml = ev.label ? `<div class="${labelClass}">${ev.label}</div>` : '';
+
+            let controlsHtml = `
+            <div class="event-controls">
+                <div class="control-btn hover:bg-slate-500" onclick="moveOut('${ev.id}', 'left')" title="Перенести вліво">⇦</div>
+                <div class="control-btn" onclick="promptLabel('${ev.id}')">✏️</div>
+                ${ev.status === 'OFF' ? `<div class="control-btn" onclick="toggleSpecial('${ev.id}', 'PC')">PC</div>` : ''}
+                ${ev.status === 'ON' ? `<div class="control-btn" onclick="toggleSpecial('${ev.id}', 'YM')">YM</div>` : ''}
+                <div class="control-btn hover:bg-slate-500" onclick="moveOut('${ev.id}', 'right')" title="Перенести вправо">⇨</div>
+                <div class="control-btn danger" onclick="deleteEvent('${ev.id}')" title="Видалити">❌</div>
+            </div>
+        `;
+
+            div.innerHTML = `
+            ${labelHtml}
+            <div class="resize-handle left" data-action="resizeLeft"></div>
+            ${controlsHtml}
+            <div class="resize-handle right" data-action="resizeRight"></div>
+        `;
+
+            div.addEventListener('mousedown', (e) => startDrag(e, ev.id));
+            interactiveLayer.appendChild(div);
+        });
+
+        // Інтерактивні блоки вертикальних маркерів
+        verticalEvents.forEach(vEv => {
+            let conf = VERTICAL_TYPES[vEv.type];
+            let x = (vEv.timeMin / TOTAL_MINUTES) * 100;
+
+            let div = document.createElement('div');
+            div.className = 'v-event-block';
+            div.style.left = `${x}%`;
+
+            let labelHtml = `<div class="v-event-label" style="border-color: ${conf.color}; color: ${conf.color === '#f97316' ? '#ea580c' : conf.color};">${conf.label}</div>`;
+            let controlsHtml = `
+            <div class="v-event-controls">
+                <div class="control-btn danger" onclick="deleteVEvent('${vEv.id}')" title="Видалити">❌</div>
+            </div>
+        `;
+
+            div.innerHTML = labelHtml + controlsHtml;
+            div.addEventListener('mousedown', (e) => startDragVertical(e, vEv.id));
+            interactiveLayer.appendChild(div);
+        });
+    }
+
+    function drawSVGLines(dataArr, svgElement, isGhost, activeEvents = []) {
+        let html = '';
+
+        for (let i = 0; i < dataArr.length; i++) {
+            let ev = dataArr[i];
+            let startX = (ev.startMin / TOTAL_MINUTES) * 100;
+            let endX = (ev.endMin / TOTAL_MINUTES) * 100;
+            let y = Y_OFFSETS[ev.status];
+            let lineColor = STATUS_COLORS[ev.status];
+
+            if (isGhost) {
+                let currentEv = activeEvents.find(e => e.id === ev.id);
+                let isUnchanged = currentEv &&
+                    currentEv.startMin === ev.startMin &&
+                    currentEv.endMin === ev.endMin &&
+                    currentEv.status === ev.status &&
+                    currentEv.special === ev.special;
+
+                if (!isUnchanged) {
+                    let rectY = y - 10;
+                    let widthPercent = endX - startX;
+                    html += `<rect x="${startX}%" y="${rectY}" width="${widthPercent}%" height="20" fill="${lineColor}" fill-opacity="0.1" stroke="${lineColor}" stroke-width="1.5" stroke-dasharray="4 4" rx="4" />`;
+                }
+
+                if (i < dataArr.length - 1) {
+                    let nextEv = dataArr[i+1];
+                    if (ev.endMin === nextEv.startMin) {
+                        let nextCurrentEv = activeEvents.find(e => e.id === nextEv.id);
+                        let isNextUnchanged = nextCurrentEv &&
+                            nextCurrentEv.startMin === nextEv.startMin &&
+                            nextCurrentEv.endMin === nextEv.endMin &&
+                            nextCurrentEv.status === nextEv.status &&
+                            nextCurrentEv.special === nextEv.special;
+
+                        if (!isUnchanged || !isNextUnchanged) {
+                            let nextY = Y_OFFSETS[nextEv.status];
+                            html += `<line x1="${endX}%" y1="${y}" x2="${endX}%" y2="${nextY}" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 4" />`;
+                        }
+                    }
+                }
+            } else {
+                let strokeWidth = 4;
+                let strokeDash = ev.special !== 'NONE' ? 'stroke-dasharray="6 4"' : '';
+                if (ev.special === 'PC') lineColor = '#ef4444';
+                if (ev.special === 'YM') lineColor = '#f59e0b';
+
+                html += `<line x1="${startX}%" y1="${y}" x2="${endX}%" y2="${y}" stroke="${lineColor}" stroke-width="${strokeWidth}" ${strokeDash} stroke-linecap="round"/>`;
+
+                if (i < dataArr.length - 1) {
+                    let nextEv = dataArr[i+1];
+                    if (ev.endMin === nextEv.startMin) {
+                        let nextY = Y_OFFSETS[nextEv.status];
+                        html += `<line x1="${endX}%" y1="${y}" x2="${endX}%" y2="${nextY}" stroke="#94a3b8" stroke-width="2" />`;
+                    }
+                }
+            }
+        }
+        svgElement.innerHTML = html;
+    }
+
+    /**
+     * ФУНКЦІЯ МАЛЮВАННЯ ВЕКТОРІВ ЗМІН
+     */
+    function drawArrows(saved, current) {
+        let html = `
+        <defs>
+            <marker id="arrowGray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" opacity="0.8" />
+            </marker>
+        </defs>
+    `;
+
+        const getCappedCoords = (sVal, cVal) => {
+            if ((sVal <= 0 && cVal <= 0) || (sVal >= 100 && cVal >= 100)) return null;
+            // Знижено поріг, щоб надійно ловити зміну навіть на 15 хвилин (що складає 1.04%)
+            if (Math.abs(sVal - cVal) < 0.2) return null;
+
+            let target = cVal;
+            if (cVal < sVal) target = Math.max(0.8, cVal);
+            if (cVal > sVal) target = Math.min(99.2, cVal);
+
+            let origin = Math.max(0, Math.min(100, sVal));
+            if (Math.abs(origin - target) < 0.2) return null;
+
+            return { x1: origin, x2: target };
+        };
+
+        saved.forEach(sEv => {
+            let cEv = current.find(e => e.id === sEv.id);
+
+            let sStart = (sEv.startMin / TOTAL_MINUTES) * 100;
+            let sEnd = (sEv.endMin / TOTAL_MINUTES) * 100;
+            let sY = Y_OFFSETS[sEv.status];
+            let sCenter = (sStart + sEnd) / 2;
+
+            if (!cEv) {
+                if (outOfBoundsEvents[sEv.id]) {
+                    let isLeft = outOfBoundsEvents[sEv.id] === 'left';
+                    let targetX = isLeft ? 0.8 : 99.2;
+                    let originX = Math.max(0, Math.min(100, sCenter));
+                    html += `<line x1="${originX}%" y1="${sY}" x2="${targetX}%" y2="${sY}" stroke="#94a3b8" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrowGray)" opacity="0.8"/>`;
+                } else {
+                    let originX = Math.max(2, Math.min(98, sCenter));
+                    html += `
+                    <svg x="${originX}%" y="${sY}" overflow="visible">
+                        <circle cx="0" cy="0" r="10" fill="#fee2e2" opacity="0.9" />
+                        <line x1="-4" y1="-4" x2="4" y2="4" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/>
+                        <line x1="-4" y1="4" x2="4" y2="-4" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/>
+                    </svg>
+                `;
+                }
+                return;
+            }
+
+            let cStart = (cEv.startMin / TOTAL_MINUTES) * 100;
+            let cEnd = (cEv.endMin / TOTAL_MINUTES) * 100;
+            let cY = Y_OFFSETS[cEv.status];
+            let cCenter = (cStart + cEnd) / 2;
+
+            if (Math.abs(sStart - cStart) < 0.1 && Math.abs(sEnd - cEnd) < 0.1 && sY === cY) return;
+
+            if (sY !== cY) {
+                if ((sCenter <= 0 && cCenter <= 0) || (sCenter >= 100 && cCenter >= 100)) return;
+
+                let sC = Math.max(0, Math.min(100, sCenter));
+                let cC = cCenter;
+                if (cCenter < sCenter) cC = Math.max(0.8, cCenter);
+                if (cCenter > sCenter) cC = Math.min(99.2, cCenter);
+
+                let midY = (sY + cY) / 2;
+                let endY = cY > sY ? cY - 12 : cY + 12;
+
+                html += `
+                <line x1="${sC}%" y1="${sY}" x2="${sC}%" y2="${midY}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6"/>
+                <line x1="${sC}%" y1="${midY}" x2="${cC}%" y2="${midY}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6"/>
+                <line x1="${cC}%" y1="${midY}" x2="${cC}%" y2="${endY}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6" marker-end="url(#arrowGray)" />
+            `;
+            } else {
+                let yOffset = sY - 15;
+
+                let leftMoved = Math.abs(sStart - cStart) > 0.2;
+                let rightMoved = Math.abs(sEnd - cEnd) > 0.2;
+                let centerDiff = Math.abs(sCenter - cCenter);
+
+                if (leftMoved && rightMoved) {
+                    let durationSaved = sEnd - sStart;
+                    let durationCurrent = cEnd - cStart;
+                    let isPureMove = Math.abs(durationSaved - durationCurrent) < 0.5;
+
+                    if (isPureMove) {
+                        let coords = getCappedCoords(sCenter, cCenter);
+                        if (coords) html += `<line x1="${coords.x1}%" y1="${yOffset}" x2="${coords.x2}%" y2="${yOffset}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6" marker-end="url(#arrowGray)" />`;
+                    } else {
+                        if (centerDiff > 2.0) { // Центр змістився значно -> малюємо одну стрілку по центру, щоб уникнути каші
+                            let coords = getCappedCoords(sCenter, cCenter);
+                            if (coords) html += `<line x1="${coords.x1}%" y1="${yOffset}" x2="${coords.x2}%" y2="${yOffset}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6" marker-end="url(#arrowGray)" />`;
+                        } else { // Центр майже на місці (симетричне стиснення) -> малюємо стрілки з обох боків
+                            let startCoords = getCappedCoords(sStart, cStart);
+                            if (startCoords) html += `<line x1="${startCoords.x1}%" y1="${yOffset}" x2="${startCoords.x2}%" y2="${yOffset}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6" marker-end="url(#arrowGray)" />`;
+
+                            let endCoords = getCappedCoords(sEnd, cEnd);
+                            if (endCoords) html += `<line x1="${endCoords.x1}%" y1="${yOffset}" x2="${endCoords.x2}%" y2="${yOffset}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6" marker-end="url(#arrowGray)" />`;
+                        }
+                    }
+                } else if (leftMoved) {
+                    let coords = getCappedCoords(sStart, cStart);
+                    if (coords) html += `<line x1="${coords.x1}%" y1="${yOffset}" x2="${coords.x2}%" y2="${yOffset}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6" marker-end="url(#arrowGray)" />`;
+                } else if (rightMoved) {
+                    let coords = getCappedCoords(sEnd, cEnd);
+                    if (coords) html += `<line x1="${coords.x1}%" y1="${yOffset}" x2="${coords.x2}%" y2="${yOffset}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6" marker-end="url(#arrowGray)" />`;
+                }
+            }
+        });
+
+        svgArrowsLayer.innerHTML = html;
+    }
+
+    /**
+     * ЛОГІКА DRAG & DROP (Горизонтальні події)
+     */
+    function startDrag(e, id) {
+        if (e.target.classList.contains('control-btn')) return;
+
+        draggedEventId = id;
+        initialEventsSnapshot = JSON.parse(JSON.stringify(events));
+        initialOutOfBoundsSnapshot = JSON.parse(JSON.stringify(outOfBoundsEvents));
+        let ev = initialEventsSnapshot.find(e => e.id === id);
+        initialStartMin = ev.startMin;
+        initialEndMin = ev.endMin;
+        startDragX = e.clientX;
+
+        if (e.target.classList.contains('left')) dragType = 'resizeLeft';
+        else if (e.target.classList.contains('right')) dragType = 'resizeRight';
+        else dragType = 'move';
+
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', endDrag);
+    }
+
+    function onDrag(e) {
+        if (!draggedEventId) return;
+
+        let workingEvents = JSON.parse(JSON.stringify(initialEventsSnapshot));
+        outOfBoundsEvents = JSON.parse(JSON.stringify(initialOutOfBoundsSnapshot));
+        let ev = workingEvents.find(e => e.id === draggedEventId);
+
+        let containerRect = graphContainer.getBoundingClientRect();
+        let pxDeltaX = e.clientX - startDragX;
+        let minutesDelta = (pxDeltaX / containerRect.width) * TOTAL_MINUTES;
+        let snappedDelta = Math.round(minutesDelta / SNAP_MINUTES) * SNAP_MINUTES;
+
+        if (dragType === 'move') {
+            let relY = e.clientY - containerRect.top;
+            if (relY < 60) ev.status = 'OFF';
+            else if (relY < 120) ev.status = 'SB';
+            else if (relY < 180) ev.status = 'D';
+            else ev.status = 'ON';
+
+            if (ev.status !== 'OFF' && ev.special === 'PC') ev.special = 'NONE';
+            if (ev.status !== 'ON' && ev.special === 'YM') ev.special = 'NONE';
+        }
+
+        let newStart = initialStartMin;
+        let newEnd = initialEndMin;
+
+        if (dragType === 'move') {
+            let duration = initialEndMin - initialStartMin;
+            newStart = initialStartMin + snappedDelta;
+            newEnd = newStart + duration;
+        } else if (dragType === 'resizeLeft') {
+            newStart = initialStartMin + snappedDelta;
+        } else if (dragType === 'resizeRight') {
+            newEnd = initialEndMin + snappedDelta;
+        }
+
+        if (newEnd - newStart < SNAP_MINUTES) {
+            if (dragType === 'resizeLeft') newStart = newEnd - SNAP_MINUTES;
+            else newEnd = newStart + SNAP_MINUTES;
+        }
+
+        ev.startMin = newStart;
+        ev.endMin = newEnd;
+
+        // Логіка витіснення (Push Out)
+        let centerE = (ev.startMin + ev.endMin) / 2;
+        let isMoving = (dragType === 'move');
+        let leftEvents = [];
+        let rightEvents = [];
+
+        for (let o of workingEvents) {
+            if (o.id === ev.id) continue;
+            let initialO = initialEventsSnapshot.find(i => i.id === o.id);
+            let initialE = initialEventsSnapshot.find(i => i.id === ev.id);
+
+            let initialCenterO = (initialO.startMin + initialO.endMin) / 2;
+            let referenceCenterE = isMoving ? centerE : ((initialE.startMin + initialE.endMin) / 2);
+
+            if (initialCenterO < referenceCenterE) leftEvents.push(o);
+            else rightEvents.push(o);
+        }
+
+        leftEvents.sort((a, b) => {
+            let initA = initialEventsSnapshot.find(i => i.id === a.id);
+            let initB = initialEventsSnapshot.find(i => i.id === b.id);
+            return initB.startMin - initA.startMin;
+        });
+        rightEvents.sort((a, b) => {
+            let initA = initialEventsSnapshot.find(i => i.id === a.id);
+            let initB = initialEventsSnapshot.find(i => i.id === b.id);
+            return initA.startMin - initB.startMin;
+        });
+
+        let currentBoundary = ev.startMin;
+        for (let o of leftEvents) {
+            if (o.endMin > currentBoundary) o.endMin = currentBoundary;
+            if (o.endMin - o.startMin < SNAP_MINUTES) {
+                o.endMin = currentBoundary;
+                o.startMin = o.endMin - SNAP_MINUTES;
+            }
+            currentBoundary = o.startMin;
+        }
+
+        currentBoundary = ev.endMin;
+        for (let o of rightEvents) {
+            if (o.startMin < currentBoundary) o.startMin = currentBoundary;
+            if (o.endMin - o.startMin < SNAP_MINUTES) {
+                o.startMin = currentBoundary;
+                o.endMin = o.startMin + SNAP_MINUTES;
+            }
+            currentBoundary = o.endMin;
+        }
+
+        workingEvents.forEach(o => {
+            if (o.endMin <= 0) outOfBoundsEvents[o.id] = 'left';
+            else if (o.startMin >= TOTAL_MINUTES) outOfBoundsEvents[o.id] = 'right';
+        });
+
+        events = workingEvents.filter(o => o.endMin > 0 && o.startMin < TOTAL_MINUTES);
+
+        render();
+    }
+
+    function endDrag() {
+        draggedEventId = null;
+        dragType = null;
+        document.removeEventListener('mousemove', onDrag);
+        document.removeEventListener('mouseup', endDrag);
+    }
+
+    /**
+     * ЛОГІКА DRAG & DROP (Вертикальні маркери)
+     */
+    function startDragVertical(e, id) {
+        if (e.target.classList.contains('control-btn')) return;
+        draggedVEventId = id;
+        let vEv = verticalEvents.find(v => v.id === id);
+        initialVTimeMin = vEv.timeMin;
+        startDragX = e.clientX;
+        document.addEventListener('mousemove', onDragVertical);
+        document.addEventListener('mouseup', endDragVertical);
+    }
+
+    function onDragVertical(e) {
+        if (!draggedVEventId) return;
+        let vEv = verticalEvents.find(v => v.id === draggedVEventId);
+        let containerRect = graphContainer.getBoundingClientRect();
+        let pxDeltaX = e.clientX - startDragX;
+        let minutesDelta = (pxDeltaX / containerRect.width) * TOTAL_MINUTES;
+        let snappedDelta = Math.round(minutesDelta / SNAP_MINUTES) * SNAP_MINUTES;
+
+        let newTime = initialVTimeMin + snappedDelta;
+        if(newTime < 0) newTime = 0;
+        if(newTime > TOTAL_MINUTES) newTime = TOTAL_MINUTES;
+
+        vEv.timeMin = newTime;
+        render();
+    }
+
+    function endDragVertical() {
+        draggedVEventId = null;
+        document.removeEventListener('mousemove', onDragVertical);
+        document.removeEventListener('mouseup', endDragVertical);
+    }
+
+    /**
+     * ОПЕРАЦІЇ З МЕНЮ
+     */
+    function moveOut(id, direction) {
+        outOfBoundsEvents[id] = direction;
+        events = events.filter(e => e.id !== id);
+        render();
+    }
+
+    function deleteEvent(id) {
+        events = events.filter(e => e.id !== id);
+        render();
+    }
+
+    function promptLabel(id) {
+        let ev = events.find(e => e.id === id);
+        let txt = prompt("Введіть текст підпису:", ev.label);
+        if (txt !== null) {
+            ev.label = txt;
+            render();
+        }
+    }
+
+    function toggleSpecial(id, type) {
+        let ev = events.find(e => e.id === id);
+        if (ev.special === type) ev.special = 'NONE';
+        else ev.special = type;
+        render();
+    }
+
+    function deleteVEvent(id) {
+        verticalEvents = verticalEvents.filter(v => v.id !== id);
+        render();
+    }
+
+    // КНОПКИ УПРАВЛІННЯ
+    document.getElementById('btnAddEvent').addEventListener('click', addEvent);
+    document.getElementById('btnAddVEvent').addEventListener('click', addVerticalEvent);
+
+    document.getElementById('btnSave').addEventListener('click', () => {
+        savedEvents = JSON.parse(JSON.stringify(events));
+        savedVerticalEvents = JSON.parse(JSON.stringify(verticalEvents));
+        outOfBoundsEvents = {};
+        saveToStorage();
+        render();
+
+        let btn = document.getElementById('btnSave');
+        let originalText = btn.innerHTML;
+        btn.innerHTML = "✅ Збережено!";
+        setTimeout(() => btn.innerHTML = originalText, 2000);
+    });
+
+    document.getElementById('btnReset').addEventListener('click', () => {
+        events = JSON.parse(JSON.stringify(savedEvents));
+        verticalEvents = JSON.parse(JSON.stringify(savedVerticalEvents));
+        outOfBoundsEvents = {};
+        render();
+    });
+
+    document.getElementById('btnClearAll').addEventListener('click', () => {
+        if(confirm("Ви впевнені, що хочете очистити весь графік (всі події та маркери будуть видалені)?")) {
+            events = [];
+            verticalEvents = [];
+            savedEvents = [];
+            savedVerticalEvents = [];
+            outOfBoundsEvents = {};
+
+            localStorage.removeItem('eld_edu_graph_data_v3');
+            localStorage.removeItem('eld_edu_graph_data_v2');
+            localStorage.removeItem('eld_edu_graph_data');
+
+            render();
+        }
+    });
+
+    const btnInvalid = document.getElementById('btnInvalid');
+    const btnValid = document.getElementById('btnValid');
+
+    btnInvalid.addEventListener('click', () => {
+        btnInvalid.classList.toggle('active-red');
+        if (btnInvalid.classList.contains('active-red')) btnValid.classList.remove('active-green');
+    });
+
+    btnValid.addEventListener('click', () => {
+        btnValid.classList.toggle('active-green');
+        if (btnValid.classList.contains('active-green')) btnInvalid.classList.remove('active-red');
+    });
+
+    initGrid();
+    loadFromStorage();
+
+</script>
+</body>
+</html>
